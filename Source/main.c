@@ -12,12 +12,27 @@
 int screenWidth     =   1280;
 int screenHeight    =   720;
 
+Vector2 mousePosition = { 0 };
+Vector2 lastMousePosition = { 0 };
+Vector2 mouseMovement = { 0 };
+
+float brush_size = 40.0;
+float wheel_factor = 10.0;
+
 typedef enum channelType {
     CHANNEL_R,
     CHANNEL_G,
     CHANNEL_B,
     CHANNEL_A,
 } channelType;
+
+inline Vector2 map_to_space(Vector2 input, Vector2 origin, Vector2 dimension) {
+    return Vector2Divide(Vector2Subtract(input, origin), dimension);
+}
+
+inline bool within_clipping_plane(Vector2 v) {
+    return (v.x >= 0. && v.x < 1.) && (v.y >= 0. && v.y < 1.);
+}
 
 typedef struct button {
     char* label;
@@ -26,13 +41,31 @@ typedef struct button {
     void (*handler)(Vector2 p);
 } button;
 
+bool update_button(button b) {
+    Vector2 v = map_to_space(mousePosition, b.position, b.rect);
+    if (within_clipping_plane(v)) {
+        b.handler(v);
+        return true;
+    }
+    else return false;
+}
+
+void draw_button(button b) {
+    DrawRectangleV(b.position, b.rect, RAYWHITE);
+    int font_size = 42;
+    int tex_width = MeasureText(b.label, font_size);
+    DrawText(b.label, b.position.x + (b.rect.x - tex_width)/2, b.position.y + (b.rect.y - font_size)/2, font_size, BLACK);
+}
+
 void greet(Vector2 p) {
-    printf("hello there\n");
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        printf("hello there\n");
+    }
 }
 
 button buttons[] = {
-    {"hi",      (Vector2){0,0},     (Vector2){100,100},     greet},
-    {"hello",   (Vector2){0,0},     (Vector2){100,100},     greet},
+    {"hi",      (Vector2){80,80},     (Vector2){160,100},     greet},
+    //{"hello",   (Vector2){0,0},     (Vector2){100,100},     greet},
 };
 size_t button_count = sizeof(buttons)/sizeof(buttons[0]);
 
@@ -46,10 +79,6 @@ char* textBuffer;
 bool waitingToScale = false;
 bool waitingToSync = false;
 bool waitingforImageData = true;
-
-Vector2 mousePosition = { 0 };
-Vector2 lastMousePosition = { 0 };
-Vector2 mouseMovement = { 0 };
 
 channelType selectedChannel = CHANNEL_A;
 Color selectedColor = BLACK;
@@ -188,10 +217,19 @@ int main (int argc, char** argv) {
             mouseMovement = Vector2Subtract(mousePosition, lastMousePosition);
             selectedColor = GetImageColor(image, mousePosition.x, mousePosition.y);
             if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !lengthNegligible(mouseMovement)) {
-                drawCircleUntoData(mousePosition, 40.0, selectedChannel, paintValue);
+                drawCircleUntoData(mousePosition, brush_size, selectedChannel, paintValue);
                 waitingToSync = true;
             }
             if (waitingToSync && IsImageReady(image)) syncTexture();
+            float wheel = GetMouseWheelMoveV().y;
+            if (wheel) {
+                brush_size += wheel*wheel_factor;
+                if (brush_size < 0.) brush_size = 0.;
+                printf("wheel: %f\n", wheel);
+            }
+            for (size_t i = 0; i < button_count; i++) {
+                update_button(buttons[i]);
+            }
             lastMousePosition = mousePosition;
         }
         drawFrame();
@@ -251,6 +289,9 @@ void drawFrame () {
         DrawText(textBuffer, 64, 108, 20, GREEN);
         DRAW_TEXT("Drawing With: %d", 64, 144, 20, GREEN, paintValue);
         DRAW_TEXT("%d", 64, 180, 20, GREEN, paintValueBuffer);
+        for (size_t i = 0; i < button_count; i++) {
+            draw_button(buttons[i]);
+        }
     }
     EndDrawing();
 }
