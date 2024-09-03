@@ -19,6 +19,23 @@ typedef enum channelType {
     CHANNEL_A,
 } channelType;
 
+typedef struct button {
+    char* label;
+    Vector2 position;
+    Vector2 rect;
+    void (*handler)(Vector2 p);
+} button;
+
+void greet(Vector2 p) {
+    printf("hello there\n");
+}
+
+button buttons[] = {
+    {"hi",      (Vector2){0,0},     (Vector2){100,100},     greet},
+    {"hello",   (Vector2){0,0},     (Vector2){100,100},     greet},
+};
+size_t button_count = sizeof(buttons)/sizeof(buttons[0]);
+
 Image image = { 0 };
 Image resizedImage = { 0 };
 float scale = 0.0;
@@ -47,7 +64,7 @@ int filePathCounter = 0;
 char *filePaths[MAX_FILEPATH_RECORDED] = { 0 };
 
 void drawFrame ();
-void drawCircleUntoData (double radius, channelType channel, unsigned char value);
+void drawCircleUntoData (Vector2 position, double radius, channelType channel, unsigned char value);
 Color *getImageData(Image* source);
 
 #define DRAW_TEXT(info, x, y, size, color, ...) \
@@ -73,10 +90,10 @@ inline int clamp (int source, int min, int max) {
 
 static inline void scaleImage() {
     scale = max(
-        (float)image.width / (float)GetScreenWidth(),
-        (float)image.height / (float)GetScreenHeight()
+        (float)image.width / (float)screenWidth,
+        (float)image.height / (float)screenHeight
     );
-    printf("w: %d, h: %d\n", GetScreenWidth(), GetScreenHeight());
+    printf("w: %d, h: %d\n", screenWidth, screenHeight);
     printf("stretch: %f\n", scale);
     waitingToScale = false;
 }
@@ -84,11 +101,17 @@ static inline void scaleImage() {
 static inline void syncTexture() {
     if (texture.width != 0) UnloadTexture(texture);
     texture = LoadTextureFromImage(image);
-    SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR);
+    SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
     waitingToSync = false;
 }
 
 int main (int argc, char** argv) {
+    if (argc > 1) {
+        image = LoadImage(argv[1]);
+        waitingToScale = true;
+        waitingToSync = true;
+        waitingforImageData = true;
+    }
     InitWindow(screenWidth, screenHeight, "Image Tool");
 
     SetWindowState(FLAG_WINDOW_RESIZABLE);
@@ -104,6 +127,8 @@ int main (int argc, char** argv) {
     shader = LoadShader(0, "Shaders/default.frag");
     while (!WindowShouldClose()) {
         if (IsWindowResized()) {
+            screenWidth = GetScreenWidth();
+            screenHeight = GetScreenHeight();
             waitingToScale = true;
         }
         if (waitingToScale && IsImageReady(image)) scaleImage();
@@ -125,7 +150,6 @@ int main (int argc, char** argv) {
         if (waitingforImageData && IsImageReady(image)) {
             imageData = getImageData(&image);
             waitingforImageData = false;
-            printf("helo\n");
         }
         //printf("Scale:%f\n", stretch);
         if (image.data != NULL) {
@@ -150,7 +174,7 @@ int main (int argc, char** argv) {
                 } break;
                 case KEY_ESCAPE:
                 case KEY_BACKSPACE: {
-                    paintValueBuffer = 0;
+                    paintValueBuffer /= 10;
                     printf("Input Buffer: 0\n");
                 } break;
                 default: {}
@@ -164,7 +188,7 @@ int main (int argc, char** argv) {
             mouseMovement = Vector2Subtract(mousePosition, lastMousePosition);
             selectedColor = GetImageColor(image, mousePosition.x, mousePosition.y);
             if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !lengthNegligible(mouseMovement)) {
-                drawCircleUntoData(40.0, selectedChannel, paintValue);
+                drawCircleUntoData(mousePosition, 40.0, selectedChannel, paintValue);
                 waitingToSync = true;
             }
             if (waitingToSync && IsImageReady(image)) syncTexture();
@@ -196,7 +220,7 @@ void drawFrame () {
         BeginBlendMode(BLEND_CUSTOM);
         rlSetBlendFactors(RL_ZERO, RL_ONE, RL_MAX);
         BeginShaderMode(shader);
-        DrawTextureEx(texture, (Vector2){0,0}, 0.0, 1.0 / scale, WHITE);
+        DrawTextureEx(texture, (Vector2){0,0}, 0.0, 1.0 / (scale*1), WHITE);
         EndShaderMode();
         EndBlendMode();
         if (IsKeyPressed(KEY_S) & IsKeyDown(KEY_LEFT_SHIFT)) {
@@ -231,7 +255,7 @@ void drawFrame () {
     EndDrawing();
 }
 
-void drawCircleUntoData (double radius, channelType channel, unsigned char value) {
+void drawCircleUntoData (Vector2 position, double radius, channelType channel, unsigned char value) {
     int width;
     int index;
     int globalX;
@@ -240,8 +264,8 @@ void drawCircleUntoData (double radius, channelType channel, unsigned char value
     for (int y = -r; y <= r; y++) {
         width = (int)round(cos(((float)y / radius) * (PI / 2)) * radius);
         for (int x = -width; x <= width; x++) {
-            globalX = clamp(x + mousePosition.x, 0, image.width - 1);
-            globalY = clamp(y + mousePosition.y, 0, image.height - 1);
+            globalX = clamp(x + position.x, 0, image.width - 1);
+            globalY = clamp(y + position.y, 0, image.height - 1);
             index = globalX + globalY*image.width;
             switch (channel) {
                 case CHANNEL_R: {
